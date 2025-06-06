@@ -3,7 +3,8 @@
 Flask
 Flask-Cors
 Flask-JWT-Extended
-mysql-connector-python
+psycopg2-binary
 python-dotenv
 Werkzeug
 PyJWT==2.9.0
+Flask-SQLAlchemy
