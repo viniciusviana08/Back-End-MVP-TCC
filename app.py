@@ -1,8 +1,8 @@
-# app_refatorado.py (VERSÃO CORRETA - USE ESTA)
+# app.py (VERSÃO FINAL E CORRETA - SUBSTITUA TODO O SEU ARQUIVO POR ESTE)
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-# get_jwt é a nova função que vamos usar
+# Importa a função get_jwt para acessar claims customizadas
 from flask_jwt_extended import create_access_token, jwt_required, JWTManager, get_jwt_identity, get_jwt
 from werkzeug.security import generate_password_hash, check_password_hash
 from mysql.connector import Error
@@ -13,11 +13,11 @@ import os
 app = Flask(__name__)
 CORS(app) 
 
-# A chave secreta agora é lida do config.py, que lê do .env
+# Lê a chave secreta do config.py, que por sua vez lê do .env
 app.config["JWT_SECRET_KEY"] = JWT_SECRET_KEY
 jwt = JWTManager(app)
 
-# --- ROTA DE LOGIN (CORRIGIDA) ---
+# --- ROTA DE LOGIN (COM A CORREÇÃO JWT) ---
 @app.route('/api/login', methods=['POST'])
 def login():
     data = request.get_json()
@@ -28,7 +28,7 @@ def login():
         return jsonify({"msg": "Email e senha são obrigatórios"}), 400
 
     if email == MASTER_EMAIL and senha == MASTER_PASSWORD:
-        # CORREÇÃO: A identidade é uma string. A role vai para claims adicionais.
+        # CORREÇÃO APLICADA: identity é uma string, role vai para claims.
         identity = "admin_01"
         additional_claims = {"role": "adm"}
         access_token = create_access_token(identity=identity, additional_claims=additional_claims)
@@ -44,7 +44,7 @@ def login():
                 if aluno['status'] == 'inativo':
                     return jsonify({"msg": "Acesso negado: Aluno desativado."}), 403
                 
-                # CORREÇÃO: A identidade é o ID do aluno (como string). A role vai para claims.
+                # CORREÇÃO APLICADA: identity é o ID como string, role vai para claims.
                 identity = str(aluno['idAluno'])
                 additional_claims = {"role": "aluno"}
                 access_token = create_access_token(identity=identity, additional_claims=additional_claims)
@@ -57,7 +57,7 @@ def login():
                 if professor['status'] == 'inativo':
                     return jsonify({"msg": "Acesso negado: Professor desativado."}), 403
 
-                # CORREÇÃO: A identidade é o ID do professor (como string). A role vai para claims.
+                # CORREÇÃO APLICADA: identity é o ID como string, role vai para claims.
                 identity = str(professor['idProfessor'])
                 additional_claims = {"role": "professor"}
                 access_token = create_access_token(identity=identity, additional_claims=additional_claims)
@@ -72,11 +72,11 @@ def login():
         if 'cursor' in locals() and cursor:
             encerrar_db(cursor, conexao)
 
-# --- ROTA DE CADASTRO DE PROFESSOR (CORRIGIDA) ---
+# --- ROTA DE CADASTRO DE PROFESSOR (COM A CORREÇÃO JWT) ---
 @app.route('/api/cadastrarprofessor', methods=['POST'])
 @jwt_required()
 def cadastrar_professor():
-    # CORREÇÃO: Para pegar claims customizadas, usamos get_jwt()
+    # CORREÇÃO APLICADA: Usa get_jwt() para pegar claims customizadas.
     claims = get_jwt()
     user_role = claims.get('role')
 
@@ -110,11 +110,11 @@ def cadastrar_professor():
         if 'cursor' in locals() and cursor:
             encerrar_db(cursor, conexao)
 
-# --- ROTA DE PERFIL (CORRIGIDA) ---
+# --- ROTA DE PERFIL (COM A CORREÇÃO JWT) ---
 @app.route('/api/perfil', methods=['GET'])
 @jwt_required()
 def get_perfil():
-    # CORREÇÃO: get_jwt_identity() agora retorna apenas o ID (a string)
+    # CORREÇÃO APLICADA: get_jwt_identity() retorna o ID, get_jwt() pega a role.
     user_id = get_jwt_identity()
     claims = get_jwt()
     user_role = claims.get('role')
