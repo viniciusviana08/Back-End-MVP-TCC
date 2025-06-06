@@ -1,4 +1,4 @@
-# app_refatorado.py (VERSÃO CORRIGIDA)
+# app_refatorado.py (VERSÃO CORRETA - USE ESTA)
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
