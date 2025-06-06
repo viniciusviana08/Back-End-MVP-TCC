@@ -135,5 +135,10 @@ def get_perfil():
     
     return jsonify({"msg": f"Perfil do tipo '{user_role}' acessado."})
 
+@app.route('/api/version', methods=['GET'])
+def get_version():
+    return jsonify({"version": "2.1 - JWT FIX APLICADO"})
+
+
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
