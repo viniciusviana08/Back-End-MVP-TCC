@@ -13,7 +13,11 @@ CORS(app)
 # --- CONFIGURAÇÃO ---
 # Pega a connection string do Neon a partir das variáveis de ambiente
 app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL")
-app.config["JWT_SECRET_KEY"] = os.getenv("JWT_SECRET_KEY", "uma-chave-padrao-muito-segura")
+
+jwt_secret_key = os.getenv("JWT_SECRET_KEY")
+if not jwt_secret_key:
+    raise ValueError("Erro Crítico: A variável de ambiente JWT_SECRET_KEY não foi definida.")
+app.config["JWT_SECRET_KEY"] = jwt_secret_key
 
 db = SQLAlchemy(app)
 jwt = JWTManager(app)
