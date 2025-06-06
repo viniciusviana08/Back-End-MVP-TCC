@@ -1,0 +1,8 @@
+# requirements.txt (Versão corrigida)
+
+Flask
+Flask-Cors
+Flask-JWT-Extended
+mysql-connector-python
+python-dotenv
+Werkzeug
