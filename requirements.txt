@@ -2,7 +2,7 @@
 
 Flask
 Flask-Cors
-Flask-JWT-Extended
 mysql-connector-python
 python-dotenv
 Werkzeug
+PyJWT==2.9.0
