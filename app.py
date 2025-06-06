@@ -72,11 +72,11 @@ def login():
         if 'cursor' in locals() and cursor:
             encerrar_db(cursor, conexao)
 
-# --- ROTA DE CADASTRO DE PROFESSOR (COM A CORREÇÃO JWT) ---
+# --- ROTA DE CADASTRO DE PROFESSOR (COM A CORREÇÃO DO INSERT) ---
 @app.route('/api/cadastrarprofessor', methods=['POST'])
 @jwt_required()
 def cadastrar_professor():
-    # CORREÇÃO APLICADA: Usa get_jwt() para pegar claims customizadas.
+    # ... (código de verificação do admin e coleta de dados permanece o mesmo) ...
     claims = get_jwt()
     user_role = claims.get('role')
 
@@ -96,8 +96,15 @@ def cadastrar_professor():
 
     try:
         conexao, cursor = conectar_db()
-        comandoSQL = 'INSERT INTO Professor (nomeProfessor, cpfProfessor, emailProfessor, senhaProfessor) VALUES (%s, %s, %s, %s)'
-        cursor.execute(comandoSQL, (nome, cpf, email, hashed_password))
+        
+        # --- ALTERAÇÃO AQUI ---
+        # Adicionamos a coluna 'status' ao comando SQL.
+        comandoSQL = 'INSERT INTO Professor (nomeProfessor, cpfProfessor, emailProfessor, senhaProfessor, status) VALUES (%s, %s, %s, %s, %s)'
+        
+        # E adicionamos o valor 'ativo' à lista de parâmetros.
+        cursor.execute(comandoSQL, (nome, cpf, email, hashed_password, 'ativo'))
+        # --- FIM DA ALTERAÇÃO ---
+
         conexao.commit()
         return jsonify({"msg": f"Professor '{nome}' cadastrado com sucesso!"}), 201
 
