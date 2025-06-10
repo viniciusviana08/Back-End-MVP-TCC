@@ -106,6 +106,33 @@ def listar_alunos():
     finally:
         encerrar_db(cursor, conexao)
 
+@app.route('/api/professor', methods=['POST'])
+def cadastrar_professor():
+    data = request.get_json()
+    nome = data.get('nomeProfessor')
+    cpf = limpar_input(data.get('cpfProfessor'))
+    email = data.get('emailProfessor')
+    senha = data.get('senhaProfessor')
+
+    if not nome or not cpf or not email or not senha:
+        return jsonify({'msg': 'Todos os campos são obrigatórios'}), 400
+
+    try:
+        conexao, cursor = conectar_db()
+        cursor.execute("""
+            INSERT INTO Professor (nomeProfessor, cpfProfessor, emailProfessor, senhaProfessor)
+            VALUES (%s, %s, %s, %s)
+        """, (nome, cpf, email, senha))
+        conexao.commit()
+        return jsonify({'msg': 'Professor cadastrado com sucesso!'}), 201
+    except Error as e:
+        if e.errno == 1062:
+            return jsonify({'msg': 'E-mail ou CPF já cadastrado!'}), 409
+        return jsonify({'msg': str(e)}), 500
+    finally:
+        encerrar_db(cursor, conexao)
+
+
 
 @app.route('/api/resposta', methods=['POST'])
 def salvar_resposta():
