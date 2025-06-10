@@ -1,120 +1,133 @@
-# app.py (VERSÃO FINAL PARA NEON/POSTGRESQL COM SQLALCHEMY)
-
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from flask_sqlalchemy import SQLAlchemy
-from flask_jwt_extended import create_access_token, jwt_required, JWTManager, get_jwt_identity, get_jwt
-from werkzeug.security import generate_password_hash, check_password_hash
-import os
+from config import *
+from db_functions import conectar_db, encerrar_db, limpar_input
+from mysql.connector import Error
 
 app = Flask(__name__)
-CORS(app) 
+app.secret_key = SECRET_KEY
+CORS(app)
 
-# --- CONFIGURAÇÃO ---
-# Pega a connection string do Neon a partir das variáveis de ambiente
-app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL")
-
-jwt_secret_key = os.getenv("JWT_SECRET_KEY")
-if not jwt_secret_key:
-    raise ValueError("Erro Crítico: A variável de ambiente JWT_SECRET_KEY não foi definida.")
-app.config["JWT_SECRET_KEY"] = jwt_secret_key
-
-db = SQLAlchemy(app)
-jwt = JWTManager(app)
-
-# --- MODELOS DO BANCO DE DADOS ---
-# Representação das suas tabelas como classes Python
-class Professor(db.Model):
-    __tablename__ = 'professor' # Garante que o nome da tabela seja minúsculo
-    idprofessor = db.Column(db.Integer, primary_key=True)
-    nomeprofessor = db.Column(db.String(100), nullable=False)
-    cpfprofessor = db.Column(db.String(11), unique=True, nullable=False)
-    emailprofessor = db.Column(db.String(100), unique=True, nullable=False)
-    senhaprofessor = db.Column(db.String(255), nullable=False)
-    status = db.Column(db.String(10), nullable=False, default='ativo')
-
-class Aluno(db.Model):
-    __tablename__ = 'aluno'
-    idaluno = db.Column(db.Integer, primary_key=True)
-    nomealuno = db.Column(db.String(100), nullable=False)
-    cpfaluno = db.Column(db.String(11), unique=True, nullable=False)
-    emailaluno = db.Column(db.String(100), unique=True, nullable=False)
-    senhaaluno = db.Column(db.String(255), nullable=False)
-    status = db.Column(db.String(10), nullable=False, default='ativo')
-    moedas = db.Column(db.Integer, nullable=False, default=100)
-    nivel = db.Column(db.String(50), nullable=False, default='Iniciante 1')
-
-# --- ROTAS DA API ---
 @app.route('/api/login', methods=['POST'])
-def login():
+def api_login():
     data = request.get_json()
-    email = data.get('email', None)
-    senha = data.get('senha', None)
-    
-    # Lógica de Admin (não muda)
-    MASTER_EMAIL = os.getenv('MASTER_EMAIL')
-    MASTER_PASSWORD = os.getenv('MASTER_PASSWORD')
+    email = data.get('email')
+    senha = data.get('senha')
+
+    if not email or not senha:
+        return jsonify({'error': 'Campos obrigatórios'}), 400
+
     if email == MASTER_EMAIL and senha == MASTER_PASSWORD:
-        identity = "admin_01"
-        additional_claims = {"role": "adm"}
-        access_token = create_access_token(identity=identity, additional_claims=additional_claims)
-        return jsonify(access_token=access_token, user_role="adm", user_name="Administrador")
+        return jsonify({'tipo': 'adm'}), 200
 
-    # Busca o professor no banco usando SQLAlchemy
-    professor = Professor.query.filter_by(emailprofessor=email).first()
-    if professor and check_password_hash(professor.senhaprofessor, senha):
-        if professor.status == 'inativo':
-            return jsonify({"msg": "Acesso negado: Professor desativado."}), 403
-        
-        identity = str(professor.idprofessor)
-        additional_claims = {"role": "professor"}
-        access_token = create_access_token(identity=identity, additional_claims=additional_claims)
-        return jsonify(access_token=access_token, user_role="professor", user_name=professor.nomeprofessor)
+    try:
+        conexao, cursor = conectar_db()
 
-    # Busca o aluno no banco
-    aluno = Aluno.query.filter_by(emailaluno=email).first()
-    if aluno and check_password_hash(aluno.senhaaluno, senha):
-        if aluno.status == 'inativo':
-            return jsonify({"msg": "Acesso negado: Aluno desativado."}), 403
+        cursor.execute("SELECT * FROM Aluno WHERE email = %s AND senha = %s", (email, senha))
+        aluno = cursor.fetchone()
+        if aluno:
+            if aluno['status'] == 'inativo':
+                return jsonify({'error': 'Aluno inativo'}), 403
+            return jsonify({'tipo': 'aluno', 'id': aluno['idAluno'], 'nome': aluno['nomeAluno']}), 200
 
-        identity = str(aluno.idaluno)
-        additional_claims = {"role": "aluno"}
-        access_token = create_access_token(identity=identity, additional_claims=additional_claims)
-        return jsonify(access_token=access_token, user_role="aluno", user_name=aluno.nomealuno)
+        cursor.execute("SELECT * FROM Professores WHERE email = %s AND senha = %s", (email, senha))
+        professor = cursor.fetchone()
+        if professor:
+            return jsonify({'tipo': 'professor', 'id': professor['idProfessor'], 'nome': professor['nomeProfessor']}), 200
 
-    return jsonify({"msg": "Credenciais inválidas"}), 401
+        return jsonify({'error': 'Credenciais inválidas'}), 401
 
-@app.route('/api/cadastrarprofessor', methods=['POST'])
-@jwt_required()
-def cadastrar_professor():
-    claims = get_jwt()
-    if claims.get('role') != 'adm':
-        return jsonify({"msg": "Acesso negado."}), 403
+    except Error as e:
+        return jsonify({'error': str(e)}), 500
+    finally:
+        encerrar_db(cursor, conexao)
 
+
+@app.route('/api/aluno', methods=['POST'])
+def cadastrar_aluno():
     data = request.get_json()
-    # Verifica se já existe
-    if Professor.query.filter_by(emailprofessor=data['emailProfessor']).first() or Professor.query.filter_by(cpfprofessor=data['cpfProfessor']).first():
-        return jsonify({"msg": "Já existe um professor com este CPF ou e-mail."}), 409
+    nome = data.get('nomeAluno')
+    cpf = limpar_input(data.get('cpfAluno'))
+    email = data.get('emailAluno')
+    senha = data.get('senhaAluno')
 
-    hashed_password = generate_password_hash(data['senhaProfessor'])
-    novo_professor = Professor(
-        nomeprofessor=data['nomeProfessor'],
-        cpfprofessor=data['cpfProfessor'],
-        emailprofessor=data['emailProfessor'],
-        senhaprofessor=hashed_password,
-        status='ativo'
-    )
-    db.session.add(novo_professor)
-    db.session.commit()
-    
-    return jsonify({"msg": f"Professor '{data['nomeProfessor']}' cadastrado com sucesso!"}), 201
+    if not nome or not cpf or not email or not senha:
+        return jsonify({'error': 'Todos os campos são obrigatórios'}), 400
 
-# Adicione outras rotas aqui (perfil, etc.) usando a mesma lógica do SQLAlchemy
+    try:
+        conexao, cursor = conectar_db()
+        cursor.execute("INSERT INTO Aluno (nomeAluno, cpfAluno, email, senha) VALUES (%s, %s, %s, %s)",
+                       (nome, cpf, email, senha))
+        conexao.commit()
+        return jsonify({'mensagem': 'Aluno cadastrado com sucesso'}), 201
+    except Error as e:
+        if e.errno == 1062:
+            return jsonify({'error': 'Email já cadastrado'}), 409
+        return jsonify({'error': str(e)}), 500
+    finally:
+        encerrar_db(cursor, conexao)
 
-@app.route('/api/version', methods=['GET'])
-def get_version():
-    return jsonify({"version": "2.1 - JWT FIX APLICADO"})
+
+@app.route('/api/aluno/<int:idAluno>', methods=['PUT'])
+def editar_aluno(idAluno):
+    data = request.get_json()
+    nome = data.get('nomeAluno')
+    cpf = limpar_input(data.get('cpfAluno'))
+    email = data.get('emailAluno')
+    senha = data.get('senhaAluno')
+
+    if not nome or not cpf or not email or not senha:
+        return jsonify({'error': 'Todos os campos são obrigatórios'}), 400
+
+    try:
+        conexao, cursor = conectar_db()
+        cursor.execute("""
+            UPDATE Aluno
+            SET nomeAluno = %s, cpfAluno = %s, email = %s, senha = %s
+            WHERE idAluno = %s
+        """, (nome, cpf, email, senha, idAluno))
+        conexao.commit()
+        return jsonify({'mensagem': 'Aluno atualizado com sucesso'}), 200
+    except Error as e:
+        return jsonify({'error': str(e)}), 500
+    finally:
+        encerrar_db(cursor, conexao)
+
+
+@app.route('/api/alunos', methods=['GET'])
+def listar_alunos():
+    try:
+        conexao, cursor = conectar_db()
+        cursor.execute("SELECT * FROM Aluno")
+        alunos = cursor.fetchall()
+        return jsonify({'alunos': alunos}), 200
+    except Error as e:
+        return jsonify({'error': str(e)}), 500
+    finally:
+        encerrar_db(cursor, conexao)
+
+
+@app.route('/api/resposta', methods=['POST'])
+def salvar_resposta():
+    data = request.get_json()
+    aluno_id = data.get('aluno_id')
+    atividade_id = data.get('atividade_id')
+    resposta = data.get('resposta')
+
+    if not aluno_id or not atividade_id or not resposta:
+        return jsonify({'error': 'Campos obrigatórios'}), 400
+
+    try:
+        conexao, cursor = conectar_db()
+        cursor.execute("INSERT INTO Respostas (aluno_id, atividade_id, resposta) VALUES (%s, %s, %s)",
+                       (aluno_id, atividade_id, resposta))
+        conexao.commit()
+        return jsonify({'mensagem': 'Resposta salva com sucesso'}), 201
+    except Error as e:
+        return jsonify({'error': str(e)}), 500
+    finally:
+        encerrar_db(cursor, conexao)
 
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    app.run(debug=True)

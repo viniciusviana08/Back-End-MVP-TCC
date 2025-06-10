@@ -1,10 +1,5 @@
-# requirements.txt (Versão corrigida)
-
 Flask
 Flask-Cors
-Flask-JWT-Extended
-psycopg2-binary
+mysql-connector-python
 python-dotenv
-Werkzeug
-PyJWT==2.9.0
-Flask-SQLAlchemy
+requests
