@@ -4,4 +4,6 @@ Flask-JWT-Extended
 psycopg2-binary
 werkzeug
 python-dotenv
+gunicorn
+
 # e outras bibliotecas que você usa
