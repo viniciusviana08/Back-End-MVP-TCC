@@ -156,5 +156,20 @@ def salvar_resposta():
         encerrar_db(cursor, conexao)
 
 
+@app.route('/api/testar_conexao')
+def testar_conexao():
+    try:
+        conexao, cursor = conectar_db()
+        cursor.execute("SELECT 1;")
+        resultado = cursor.fetchone()
+        return jsonify({"conexao": "ok", "resultado": resultado})
+    except Exception as e:
+        return jsonify({"erro": str(e)})
+    finally:
+        if 'cursor' in locals(): cursor.close()
+        if 'conexao' in locals(): conexao.close()
+
+
+
 if __name__ == '__main__':
     app.run(debug=True)
