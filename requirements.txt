@@ -1,7 +1,7 @@
 Flask
 Flask-Cors
-mysql-connector-python
-python-dotenv
-requests
-gunicorn
+Flask-JWT-Extended
 psycopg2-binary
+werkzeug
+python-dotenv
+# e outras bibliotecas que você usa
