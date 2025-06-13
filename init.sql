@@ -37,4 +37,4 @@ CREATE TABLE AtividadeFeita (
     dataAtividadeFeita TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (idAluno) REFERENCES Aluno(idAluno),
     FOREIGN KEY (idAtividade) REFERENCES Atividade(idAtividade)
-);
+); 

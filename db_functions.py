@@ -1,19 +1,17 @@
-import mysql.connector
+import psycopg2
+from psycopg2.extras import RealDictCursor
 from config import *
 
 def conectar_db():
-    conexao = mysql.connector.connect(
+    conexao = psycopg2.connect(
         host=DB_HOST,
+        dbname=DB_NAME,
         user=DB_USER,
-        password=DB_PASSWORD,
-        database=DB_NAME
+        password=DB_PASSWORD
     )
-    cursor = conexao.cursor(dictionary=True)
+    cursor = conexao.cursor(cursor_factory=RealDictCursor)
     return conexao, cursor
 
 def encerrar_db(cursor, conexao):
     cursor.close()
     conexao.close()
-
-def limpar_input(campo):
-    return campo.replace(".", "").replace("/", "").replace("-", "").replace(" ", "").replace("(", "").replace(")", "").replace("R$", "")
