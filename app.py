@@ -17,7 +17,7 @@ CORS(app)
 app.config["JWT_SECRET_KEY"] = JWT_SECRET_KEY
 jwt = JWTManager(app)
 
-# --- ROTA DE LOGIN (Sem alterações, já estava correta) ---
+# --- ROTA DE LOGIN ATUALIZADA (PARA ADM E PROFESSOR) ---
 @app.route('/api/login', methods=['POST'])
 def login():
     data = request.get_json()
@@ -25,15 +25,49 @@ def login():
     senha = data.get('senha', None)
 
     if not email or not senha:
-        return jsonify({"msg": "Email e senha são obrigatórios"}), 400
+        return jsonify({"msg": "Email e senha são obrigatórios."}), 400
 
+    # 1. Tenta o login como Administrador
     if email == MASTER_EMAIL and senha == MASTER_PASSWORD:
         identity = "admin_01"
         additional_claims = {"role": "adm"}
         access_token = create_access_token(identity=identity, additional_claims=additional_claims)
         return jsonify(access_token=access_token, user_role="adm", user_name="Administrador")
-    else:
-        return jsonify({"msg": "Credenciais inválidas ou usuário não é admin."}), 401
+
+    # 2. Se não for admin, tenta o login como Professor
+    conexao = None
+    cursor = None
+    try:
+        conexao, cursor = conectar_db()
+        # Busca o professor pelo email
+        cursor.execute('SELECT idProfessor, nomeProfessor, emailProfessor, senhaProfessor, status FROM Professor WHERE emailProfessor = %s', (email,))
+        professor = cursor.fetchone()
+
+        # Verifica se o professor existe, se a senha está correta e se o status é 'ativo'
+        if professor and check_password_hash(professor['senhaprofessor'], senha):
+            if professor['status'] != 'ativo':
+                return jsonify({"msg": "Sua conta está bloqueada. Contate o administrador."}), 403
+
+            # Se tudo estiver correto, cria o token para o professor
+            identity = professor['idprofessor']
+            additional_claims = {"role": "professor"}
+            access_token = create_access_token(identity=identity, additional_claims=additional_claims)
+            
+            return jsonify(
+                access_token=access_token, 
+                user_role="professor", 
+                user_name=professor['nomeprofessor']
+            )
+
+        # 3. Se não encontrou nem admin, nem professor válido
+        return jsonify({"msg": "Email ou senha inválidos."}), 401
+
+    except psycopg2.Error as e:
+        print(f"Erro de Banco de Dados no login: {e}")
+        return jsonify({"msg": "Erro interno no servidor durante o login."}), 500
+    finally:
+        if cursor and conexao:
+            encerrar_db(cursor, conexao)
 
 # --- ROTA DE CADASTRO DE Professor (ATUALIZADA) ---
 # CORREÇÃO: A rota foi alterada para corresponder ao fetch() do frontend
