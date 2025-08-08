@@ -82,11 +82,35 @@ def cadastrar_professor():
         if cursor and conexao:
             encerrar_db(cursor, conexao)
 
-# --- OUTRAS ROTAS ---
-# A rota de perfil e outras que usam conectar_db() funcionarão automaticamente
-# desde que as tabelas correspondentes (ex: Aluno) existam no banco de dados.
-# ... (resto do seu código, se houver) ...
+# --- ROTA PARA LISTAR TODOS OS PROFESSORES ---
+@app.route('/api/professores', methods=['GET'])
+@jwt_required()
+def listar_professores():
+    # Verifica se o usuário tem a permissão de administrador
+    claims = get_jwt()
+    user_role = claims.get('role')
+    if user_role != 'adm':
+        return jsonify({"msg": "Acesso negado. Apenas administradores podem ver a lista."}), 403
 
+    conexao = None
+    cursor = None
+    try:
+        conexao, cursor = conectar_db()
+        
+        # Seleciona as colunas importantes da tabela Professor, ordenando por nome
+        comandoSQL = 'SELECT idProfessor, nomeProfessor, emailProfessor, status FROM Professor ORDER BY nomeProfessor'
+        cursor.execute(comandoSQL)
+        professores = cursor.fetchall() # Pega todos os resultados
+
+        # Retorna a lista de professores em formato JSON
+        return jsonify(professores), 200
+
+    except psycopg2.Error as e:
+        print(f"Erro de Banco de Dados ao listar professores: {e}")
+        return jsonify({"msg": "Erro interno no servidor ao buscar professores."}), 500
+    finally:
+        if cursor and conexao:
+            encerrar_db(cursor, conexao)
 
 if __name__ == '__main__':
     # Render usa um servidor WSGI (como Gunicorn), mas isso é bom para testes locais.
