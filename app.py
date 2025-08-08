@@ -112,6 +112,79 @@ def listar_professores():
         if cursor and conexao:
             encerrar_db(cursor, conexao)
 
+
+# --- ROTA PARA EXCLUIR UM PROFESSOR ---
+@app.route('/api/professores/<int:id>', methods=['DELETE'])
+@jwt_required()
+def deletar_professor(id):
+    # Proteção de administrador
+    claims = get_jwt()
+    if claims.get('role') != 'adm':
+        return jsonify({"msg": "Acesso negado."}), 403
+
+    conexao = None
+    cursor = None
+    try:
+        conexao, cursor = conectar_db()
+        # Primeiro, verifica se o professor existe
+        cursor.execute('SELECT * FROM Professor WHERE idProfessor = %s', (id,))
+        professor = cursor.fetchone()
+        if not professor:
+            return jsonify({"msg": "Professor não encontrado."}), 404
+
+        # Se existe, executa o comando de exclusão
+        cursor.execute('DELETE FROM Professor WHERE idProfessor = %s', (id,))
+        conexao.commit()
+        
+        return jsonify({"msg": f"Professor '{professor['nomeprofessor']}' excluído com sucesso."}), 200
+
+    except psycopg2.Error as e:
+        if conexao:
+            conexao.rollback()
+        print(f"Erro de Banco de Dados ao deletar professor: {e}")
+        return jsonify({"msg": "Erro interno no servidor ao deletar professor."}), 500
+    finally:
+        if cursor and conexao:
+            encerrar_db(cursor, conexao)
+
+# --- ROTA PARA ALTERAR O STATUS DE UM PROFESSOR ---
+@app.route('/api/professores/<int:id>/status', methods=['PATCH'])
+@jwt_required()
+def mudar_status_professor(id):
+    # Proteção de administrador
+    claims = get_jwt()
+    if claims.get('role') != 'adm':
+        return jsonify({"msg": "Acesso negado."}), 403
+
+    conexao = None
+    cursor = None
+    try:
+        conexao, cursor = conectar_db()
+        # Busca o professor e seu status atual
+        cursor.execute('SELECT status FROM Professor WHERE idProfessor = %s', (id,))
+        professor = cursor.fetchone()
+        if not professor:
+            return jsonify({"msg": "Professor não encontrado."}), 404
+        
+        # Determina o novo status
+        status_atual = professor['status']
+        novo_status = 'bloqueado' if status_atual == 'ativo' else 'ativo'
+        
+        # Atualiza o status no banco de dados
+        cursor.execute('UPDATE Professor SET status = %s WHERE idProfessor = %s', (novo_status, id))
+        conexao.commit()
+        
+        return jsonify({"msg": f"Status alterado para '{novo_status}'.", "novoStatus": novo_status}), 200
+
+    except psycopg2.Error as e:
+        if conexao:
+            conexao.rollback()
+        print(f"Erro de Banco de Dados ao alterar status: {e}")
+        return jsonify({"msg": "Erro interno no servidor ao alterar status."}), 500
+    finally:
+        if cursor and conexao:
+            encerrar_db(cursor, conexao)
+
 if __name__ == '__main__':
     # Render usa um servidor WSGI (como Gunicorn), mas isso é bom para testes locais.
     # O Render ignora isso e usa o comando do seu "Build Command".
