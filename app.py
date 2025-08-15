@@ -17,7 +17,7 @@ CORS(app)
 app.config["JWT_SECRET_KEY"] = JWT_SECRET_KEY
 jwt = JWTManager(app)
 
-# --- ROTA DE LOGIN ATUALIZADA (PARA ADM E PROFESSOR) ---
+# --- ROTA DE LOGIN ATUALIZADA (ADM, PROFESSOR E ALUNO) ---
 @app.route('/api/login', methods=['POST'])
 def login():
     data = request.get_json()
@@ -27,44 +27,158 @@ def login():
     if not email or not senha:
         return jsonify({"msg": "Email e senha são obrigatórios."}), 400
 
-    # 1. Tenta o login como Administrador
+    # 1. Tenta como Administrador
     if email == MASTER_EMAIL and senha == MASTER_PASSWORD:
         identity = "admin_01"
         additional_claims = {"role": "adm"}
         access_token = create_access_token(identity=identity, additional_claims=additional_claims)
         return jsonify(access_token=access_token, user_role="adm", user_name="Administrador")
 
-    # 2. Se não for admin, tenta o login como Professor
     conexao = None
     cursor = None
     try:
         conexao, cursor = conectar_db()
-        # Busca o professor pelo email
-        cursor.execute('SELECT idProfessor, nomeProfessor, emailProfessor, senhaProfessor, status FROM Professor WHERE emailProfessor = %s', (email,))
+        
+        # 2. Tenta como Professor
+        cursor.execute('SELECT idProfessor, nomeProfessor, senhaProfessor, status FROM Professor WHERE emailProfessor = %s', (email,))
         professor = cursor.fetchone()
-
-        # Verifica se o professor existe, se a senha está correta e se o status é 'ativo'
         if professor and check_password_hash(professor['senhaprofessor'], senha):
             if professor['status'] != 'ativo':
-                return jsonify({"msg": "Sua conta está bloqueada. Contate o administrador."}), 403
-
-            # Se tudo estiver correto, cria o token para o professor
+                return jsonify({"msg": "Sua conta de professor está bloqueada."}), 403
             identity = professor['idprofessor']
             additional_claims = {"role": "professor"}
             access_token = create_access_token(identity=identity, additional_claims=additional_claims)
-            
-            return jsonify(
-                access_token=access_token, 
-                user_role="professor", 
-                user_name=professor['nomeprofessor']
-            )
+            return jsonify(access_token=access_token, user_role="professor", user_name=professor['nomeprofessor'])
 
-        # 3. Se não encontrou nem admin, nem professor válido
+        # 3. Tenta como Aluno
+        cursor.execute('SELECT idAluno, nomeAluno, senhaAluno, status FROM Aluno WHERE emailAluno = %s', (email,))
+        aluno = cursor.fetchone()
+        if aluno and check_password_hash(aluno['senhaaluno'], senha):
+            if aluno['status'] != 'ativo':
+                return jsonify({"msg": "Sua conta de aluno está bloqueada."}), 403
+            identity = aluno['idaluno']
+            additional_claims = {"role": "aluno"}
+            access_token = create_access_token(identity=identity, additional_claims=additional_claims)
+            return jsonify(access_token=access_token, user_role="aluno", user_name=aluno['nomealuno'])
+            
+        # 4. Se não encontrou ninguém
         return jsonify({"msg": "Email ou senha inválidos."}), 401
 
     except psycopg2.Error as e:
         print(f"Erro de Banco de Dados no login: {e}")
-        return jsonify({"msg": "Erro interno no servidor durante o login."}), 500
+        return jsonify({"msg": "Erro interno no servidor."}), 500
+    finally:
+        if cursor and conexao:
+            encerrar_db(cursor, conexao)
+
+# --- ROTA DE CADASTRO PÚBLICA PARA ALUNOS ---
+# A rota antiga foi corrigida para ser pública (sem @jwt_required)
+@app.route('/api/register/aluno', methods=['POST'])
+def register_aluno():
+    data = request.get_json()
+    nome = data.get('nomeAluno')
+    cpf = data.get('cpfAluno')
+    email = data.get('emailAluno')
+    senha = data.get('senhaAluno')
+
+    if not all([nome, cpf, email, senha]):
+        return jsonify({"msg": "Nome, CPF, email e senha são obrigatórios"}), 400
+
+    hashed_password = generate_password_hash(senha)
+    
+    conexao = None
+    cursor = None
+    try:
+        conexao, cursor = conectar_db()
+        comandoSQL = 'INSERT INTO Aluno (nomeAluno, cpfAluno, emailAluno, senhaAluno, status, moedas, nivel) VALUES (%s, %s, %s, %s, %s, %s, %s)'
+        # Aluno começa com status 'ativo', 100 moedas e nível 'Iniciante 1'
+        cursor.execute(comandoSQL, (nome, cpf, email, hashed_password, 'ativo', 100, 'Iniciante 1'))
+        conexao.commit()
+        return jsonify({"msg": f"Aluno '{nome}' cadastrado com sucesso! Faça o login para começar."}), 201
+
+    except errors.UniqueViolation:
+        conexao.rollback()
+        return jsonify({"msg": "Já existe um aluno com este CPF ou e-mail."}), 409
+    except psycopg2.Error as e:
+        if conexao:
+            conexao.rollback()
+        print(f"Erro de Banco de Dados ao cadastrar aluno: {e}")
+        return jsonify({"msg": "Erro interno no servidor."}), 500
+    finally:
+        if cursor and conexao:
+            encerrar_db(cursor, conexao)
+
+# --- ROTA PARA OBTER DADOS DO PERFIL DO ALUNO LOGADO ---
+@app.route('/api/aluno/perfil', methods=['GET'])
+@jwt_required()
+def get_aluno_perfil():
+    # Verifica se o token pertence a um aluno
+    claims = get_jwt()
+    if claims.get('role') != 'aluno':
+        return jsonify({"msg": "Acesso negado. Apenas para alunos."}), 403
+    
+    # Pega o ID do aluno a partir do token
+    aluno_id = get_jwt_identity()
+
+    conexao = None
+    cursor = None
+    try:
+        conexao, cursor = conectar_db()
+        cursor.execute('SELECT nomeAluno, emailAluno, moedas, nivel FROM Aluno WHERE idAluno = %s', (aluno_id,))
+        aluno_data = cursor.fetchone()
+        if not aluno_data:
+            return jsonify({"msg": "Aluno não encontrado."}), 404
+        
+        return jsonify(aluno_data), 200
+
+    except psycopg2.Error as e:
+        print(f"Erro de Banco de Dados no perfil do aluno: {e}")
+        return jsonify({"msg": "Erro interno no servidor."}), 500
+    finally:
+        if cursor and conexao:
+            encerrar_db(cursor, conexao)
+
+# --- ROTA PARA REGISTRAR UMA ATIVIDADE CONCLUÍDA ---
+@app.route('/api/atividades/completar', methods=['POST'])
+@jwt_required()
+def completar_atividade():
+    claims = get_jwt()
+    if claims.get('role') != 'aluno':
+        return jsonify({"msg": "Apenas alunos podem completar atividades."}), 403
+    
+    aluno_id = get_jwt_identity()
+    data = request.get_json()
+    id_atividade = data.get('idAtividade') # Ex: 1 para "Correção de Texto"
+    pontuacao = data.get('pontuacao') # Ex: 85
+    feedback = data.get('feedbackGemini') # O feedback recebido da outra API
+
+    if not id_atividade:
+        return jsonify({"msg": "ID da atividade é obrigatório."}), 400
+
+    moedas_ganhas = 10 + (pontuacao // 10 if pontuacao else 0) # Lógica simples de recompensa
+
+    conexao = None
+    cursor = None
+    try:
+        conexao, cursor = conectar_db()
+        
+        # 1. Insere na tabela AtividadeFeita
+        comando_insert = 'INSERT INTO AtividadeFeita (idAluno, idAtividade, pontuacao, feedback_gemini) VALUES (%s, %s, %s, %s)'
+        cursor.execute(comando_insert, (aluno_id, id_atividade, pontuacao, feedback))
+
+        # 2. Atualiza as moedas do aluno
+        comando_update = 'UPDATE Aluno SET moedas = moedas + %s WHERE idAluno = %s'
+        cursor.execute(comando_update, (moedas_ganhas, aluno_id))
+        
+        conexao.commit()
+        
+        return jsonify({"msg": f"Parabéns! Você ganhou {moedas_ganhas} moedas!", "moedasGanhas": moedas_ganhas}), 200
+
+    except psycopg2.Error as e:
+        if conexao:
+            conexao.rollback()
+        print(f"Erro ao completar atividade: {e}")
+        return jsonify({"msg": "Erro interno ao salvar seu progresso."}), 500
     finally:
         if cursor and conexao:
             encerrar_db(cursor, conexao)
