@@ -71,8 +71,7 @@ def login():
         if cursor and conexao:
             encerrar_db(cursor, conexao)
 
-# --- ROTA DE CADASTRO PÚBLICA PARA ALUNOS ---
-# A rota antiga foi corrigida para ser pública (sem @jwt_required)
+# --- ATUALIZAR A ROTA DE CADASTRO DE ALUNO PARA INCLUIR O PROFESSOR ---
 @app.route('/api/register/aluno', methods=['POST'])
 def register_aluno():
     data = request.get_json()
@@ -80,9 +79,11 @@ def register_aluno():
     cpf = data.get('cpfAluno')
     email = data.get('emailAluno')
     senha = data.get('senhaAluno')
+    id_professor = data.get('idProfessor') # Novo campo recebido
 
-    if not all([nome, cpf, email, senha]):
-        return jsonify({"msg": "Nome, CPF, email e senha são obrigatórios"}), 400
+    # Adiciona a validação do novo campo
+    if not all([nome, cpf, email, senha, id_professor]):
+        return jsonify({"msg": "Todos os campos, incluindo o professor, são obrigatórios"}), 400
 
     hashed_password = generate_password_hash(senha)
     
@@ -90,9 +91,9 @@ def register_aluno():
     cursor = None
     try:
         conexao, cursor = conectar_db()
-        comandoSQL = 'INSERT INTO Aluno (nomeAluno, cpfAluno, emailAluno, senhaAluno, status, moedas, nivel) VALUES (%s, %s, %s, %s, %s, %s, %s)'
-        # Aluno começa com status 'ativo', 100 moedas e nível 'Iniciante 1'
-        cursor.execute(comandoSQL, (nome, cpf, email, hashed_password, 'ativo', 100, 'Iniciante 1'))
+        # Atualiza o comando SQL para inserir o idProfessor
+        comandoSQL = 'INSERT INTO Aluno (nomeAluno, cpfAluno, emailAluno, senhaAluno, status, moedas, nivel, idProfessor) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)'
+        cursor.execute(comandoSQL, (nome, cpf, email, hashed_password, 'ativo', 100, 'Iniciante 1', id_professor))
         conexao.commit()
         return jsonify({"msg": f"Aluno '{nome}' cadastrado com sucesso! Faça o login para começar."}), 201
 
@@ -376,6 +377,49 @@ def mudar_status_professor(id):
             conexao.rollback()
         print(f"Erro de Banco de Dados ao alterar status: {e}")
         return jsonify({"msg": "Erro interno no servidor ao alterar status."}), 500
+    finally:
+        if cursor and conexao:
+            encerrar_db(cursor, conexao)
+
+@app.route('/api/professores/lista', methods=['GET'])
+def listar_professores_publico():
+    conexao = None
+    cursor = None
+    try:
+        conexao, cursor = conectar_db()
+        # Busca apenas professores com status 'ativo'
+        cursor.execute("SELECT idProfessor, nomeProfessor FROM Professor WHERE status = 'ativo' ORDER BY nomeProfessor")
+        professores = cursor.fetchall()
+        return jsonify(professores), 200
+    except psycopg2.Error as e:
+        print(f"Erro ao listar professores para login: {e}")
+        return jsonify({"msg": "Erro ao carregar lista de professores."}), 500
+    finally:
+        if cursor and conexao:
+            encerrar_db(cursor, conexao)
+
+# --- NOVA ROTA PARA O PROFESSOR VER SEUS ALUNOS ---
+@app.route('/api/professor/alunos', methods=['GET'])
+@jwt_required()
+def listar_alunos_do_professor():
+    claims = get_jwt()
+    if claims.get('role') != 'professor':
+        return jsonify({"msg": "Acesso negado. Apenas para professores."}), 403
+    
+    professor_id = get_jwt_identity()
+
+    conexao = None
+    cursor = None
+    try:
+        conexao, cursor = conectar_db()
+        # Busca todos os alunos vinculados a este professor
+        comando = "SELECT idAluno, nomeAluno, emailAluno, status, moedas, nivel FROM Aluno WHERE idProfessor = %s ORDER BY nomeAluno"
+        cursor.execute(comando, (professor_id,))
+        alunos = cursor.fetchall()
+        return jsonify(alunos), 200
+    except psycopg2.Error as e:
+        print(f"Erro ao buscar alunos do professor: {e}")
+        return jsonify({"msg": "Erro interno ao buscar alunos."}), 500
     finally:
         if cursor and conexao:
             encerrar_db(cursor, conexao)
