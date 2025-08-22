@@ -27,7 +27,7 @@ def login():
     if not email or not senha:
         return jsonify({"msg": "Email e senha são obrigatórios."}), 400
 
-    # 1. Tenta como Administrador
+    # 1. Tenta como Administrador (já está correto, "admin_01" é uma string)
     if email == MASTER_EMAIL and senha == MASTER_PASSWORD:
         identity = "admin_01"
         additional_claims = {"role": "adm"}
@@ -45,7 +45,10 @@ def login():
         if professor and check_password_hash(professor['senhaprofessor'], senha):
             if professor['status'] != 'ativo':
                 return jsonify({"msg": "Sua conta de professor está bloqueada."}), 403
-            identity = professor['idprofessor']
+            
+            # --- CORREÇÃO APLICADA AQUI ---
+            # Converte o ID (inteiro) para uma string antes de criar o token
+            identity = str(professor['idprofessor']) 
             additional_claims = {"role": "professor"}
             access_token = create_access_token(identity=identity, additional_claims=additional_claims)
             return jsonify(access_token=access_token, user_role="professor", user_name=professor['nomeprofessor'])
@@ -56,7 +59,10 @@ def login():
         if aluno and check_password_hash(aluno['senhaaluno'], senha):
             if aluno['status'] != 'ativo':
                 return jsonify({"msg": "Sua conta de aluno está bloqueada."}), 403
-            identity = aluno['idaluno']
+
+            # --- CORREÇÃO APLICADA AQUI TAMBÉM (BOA PRÁTICA) ---
+            # Converte o ID do aluno para string também
+            identity = str(aluno['idaluno'])
             additional_claims = {"role": "aluno"}
             access_token = create_access_token(identity=identity, additional_claims=additional_claims)
             return jsonify(access_token=access_token, user_role="aluno", user_name=aluno['nomealuno'])
