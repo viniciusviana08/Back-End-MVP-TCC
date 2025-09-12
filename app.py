@@ -147,7 +147,6 @@ def get_aluno_perfil():
         if cursor and conexao:
             encerrar_db(cursor, conexao)
 
-# --- ROTA PARA REGISTRAR UMA ATIVIDADE CONCLUÍDA (VERSÃO MAIS ROBUSTA) ---
 @app.route('/api/atividades/completar', methods=['POST'])
 @jwt_required()
 def completar_atividade():
@@ -158,8 +157,8 @@ def completar_atividade():
     aluno_id = get_jwt_identity()
     data = request.get_json()
     id_atividade = data.get('idAtividade')
-    pontuacao = data.get('pontuacao', 0) # Usa 0 como padrão se não for enviado
-    feedback = data.get('feedbackGemini', '') # Usa string vazia como padrão
+    pontuacao = data.get('pontuacao', 0)
+    feedback = data.get('feedback', '')
 
     if not id_atividade:
         return jsonify({"msg": "ID da atividade é obrigatório."}), 400
@@ -172,7 +171,7 @@ def completar_atividade():
     try:
         conexao, cursor = conectar_db()
         
-        # 1. Insere na tabela AtividadeFeita
+        # 1. Insere na tabela AtividadeFeita para registrar o progresso
         comando_insert = 'INSERT INTO AtividadeFeita (idAluno, idAtividade, pontuacao, feedback_gemini) VALUES (%s, %s, %s, %s)'
         cursor.execute(comando_insert, (aluno_id, id_atividade, pontuacao, feedback))
 
