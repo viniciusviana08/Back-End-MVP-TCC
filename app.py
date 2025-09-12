@@ -430,6 +430,80 @@ def listar_alunos_do_professor():
         if cursor and conexao:
             encerrar_db(cursor, conexao)
 
+
+# --- NOVA ROTA PARA O PROFESSOR CRIAR E SALVAR UMA ATIVIDADE ---
+@app.route('/api/professor/atividades', methods=['POST'])
+@jwt_required()
+def criar_atividade_professor():
+    claims = get_jwt()
+    if claims.get('role') != 'professor':
+        return jsonify({"msg": "Acesso negado."}), 403
+    
+    professor_id = get_jwt_identity()
+    data = request.get_json()
+    
+    titulo = data.get('titulo')
+    tipo = data.get('tipo')
+    descricao = data.get('descricao')
+    conteudo_json = data.get('conteudo_json') # O JSON gerado pela IA
+
+    if not all([titulo, tipo, descricao, conteudo_json]):
+        return jsonify({"msg": "Todos os campos são obrigatórios."}), 400
+
+    conexao = None
+    cursor = None
+    try:
+        conexao, cursor = conectar_db()
+        # Salvamos o conteúdo como uma string JSON no banco
+        comando = """
+            INSERT INTO Atividade (idProfessor, nomeAtividade, tipoAtividade, dificuldade, descricaoAtividade, conteudo)
+            VALUES (%s, %s, %s, %s, %s, %s)
+        """
+        # Dificuldade é 'medio' por padrão, pode ser ajustado no futuro
+        cursor.execute(comando, (professor_id, titulo, tipo, 'medio', descricao, json.dumps(conteudo_json)))
+        conexao.commit()
+        
+        return jsonify({"msg": "Atividade criada com sucesso!"}), 201
+
+    except psycopg2.Error as e:
+        if conexao: conexao.rollback()
+        print(f"Erro ao salvar atividade: {e}")
+        return jsonify({"msg": "Erro interno ao salvar a atividade."}), 500
+    finally:
+        if cursor and conexao:
+            encerrar_db(cursor, conexao)
+
+# --- NOVA ROTA PARA O ALUNO BUSCAR TODAS AS ATIVIDADES DISPONÍVEIS ---
+@app.route('/api/aluno/atividades', methods=['GET'])
+@jwt_required()
+def listar_atividades_aluno():
+    claims = get_jwt()
+    if claims.get('role') != 'aluno':
+        return jsonify({"msg": "Acesso negado."}), 403
+
+    conexao = None
+    cursor = None
+    try:
+        conexao, cursor = conectar_db()
+        # Busca todas as atividades e o nome do professor que a criou
+        comando = """
+            SELECT a.idAtividade, a.nomeAtividade, a.tipoAtividade, a.descricaoAtividade, p.nomeProfessor
+            FROM Atividade a
+            JOIN Professor p ON a.idProfessor = p.idProfessor
+            ORDER BY a.idAtividade DESC
+        """
+        cursor.execute(comando)
+        atividades = cursor.fetchall()
+        
+        return jsonify(atividades), 200
+        
+    except psycopg2.Error as e:
+        print(f"Erro ao listar atividades para o aluno: {e}")
+        return jsonify({"msg": "Erro interno ao buscar atividades."}), 500
+    finally:
+        if cursor and conexao:
+            encerrar_db(cursor, conexao)
+
 if __name__ == '__main__':
     # Render usa um servidor WSGI (como Gunicorn), mas isso é bom para testes locais.
     # O Render ignora isso e usa o comando do seu "Build Command".
