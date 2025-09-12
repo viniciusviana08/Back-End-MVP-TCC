@@ -8,6 +8,8 @@ import psycopg2 # Importa o driver do PostgreSQL
 from psycopg2 import errors # Importa os erros específicos para tratamento
 from config import *
 from db_functions import *
+from flask import current_app
+import json as _json
 import os
 
 app = Flask(__name__)
@@ -426,6 +428,105 @@ def listar_alunos_do_professor():
     except psycopg2.Error as e:
         print(f"Erro ao buscar alunos do professor: {e}")
         return jsonify({"msg": "Erro interno ao buscar alunos."}), 500
+    finally:
+        if cursor and conexao:
+            encerrar_db(cursor, conexao)
+
+
+# --- ROTA: PROFESSOR CRIA ATIVIDADE (salva no banco) ---
+@app.route('/api/professor/atividades', methods=['POST'])
+@jwt_required()
+def criar_atividade_professor():
+    claims = get_jwt()
+    if claims.get('role') != 'professor':
+        return jsonify({"msg": "Acesso negado. Apenas professores."}), 403
+
+    professor_id = get_jwt_identity()  # no seu login identity foi string do idProfessor
+    # converte pra int se necessário
+    try:
+        professor_id_int = int(professor_id)
+    except:
+        professor_id_int = professor_id
+
+    data = request.get_json() or {}
+    titulo = data.get('titulo')
+    tipo = data.get('tipo')
+    descricao = data.get('descricao')
+    conteudo = data.get('conteudo_especifico')  # pode ser dict
+    icon = data.get('icon', 'file-text')
+    turmas = data.get('turmas', [])  # lista
+
+    if not all([titulo, tipo, descricao, conteudo]):
+        return jsonify({"msg": "Campos obrigatórios ausentes (titulo, tipo, descricao, conteudo_especifico)."}), 400
+
+    conexao = None
+    cursor = None
+    try:
+        conexao, cursor = conectar_db()
+        comando = '''
+            INSERT INTO Atividade (titulo, tipo, descricao, conteudo_json, icon, idProfessor, status, turmas)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING idAtividade
+        '''
+        cursor.execute(comando, (
+            titulo, tipo, descricao, _json.dumps(conteudo), icon, professor_id_int, 'available', _json.dumps(turmas)
+        ))
+        novo_id = cursor.fetchone()['idatividade']  # ajuste caso o dict use chave diferente
+        conexao.commit()
+        return jsonify({"msg": "Atividade criada.", "idAtividade": novo_id}), 201
+
+    except Exception as e:
+        if conexao:
+            conexao.rollback()
+        print("Erro ao criar atividade:", e)
+        return jsonify({"msg": "Erro interno ao criar atividade."}), 500
+    finally:
+        if cursor and conexao:
+            encerrar_db(cursor, conexao)
+
+# --- ROTA: RETORNAR ATIVIDADES PARA O ALUNO LOGADO ---
+@app.route('/api/aluno/atividades', methods=['GET'])
+@jwt_required()
+def listar_atividades_para_aluno():
+    claims = get_jwt()
+    if claims.get('role') != 'aluno':
+        return jsonify({"msg": "Acesso negado. Apenas alunos."}), 403
+
+    aluno_id = get_jwt_identity()
+    conexao = None
+    cursor = None
+    try:
+        conexao, cursor = conectar_db()
+        # Pega o idProfessor associado ao aluno (coluna idProfessor na tabela Aluno)
+        cursor.execute('SELECT idProfessor FROM Aluno WHERE idAluno = %s', (aluno_id,))
+        aluno = cursor.fetchone()
+        id_prof = aluno['idprofessor'] if aluno else None
+
+        # Seleciona atividades do professor ou públicas (idProfessor is null)
+        # Ajuste conforme sua modelagem (por ex. turmas json)
+        cursor.execute("""
+            SELECT idAtividade, titulo, tipo, descricao, conteudo_json, icon, idProfessor, status, turmas
+            FROM Atividade
+            WHERE (idProfessor = %s) OR (idProfessor IS NULL)
+            ORDER BY idAtividade DESC
+        """, (id_prof,))
+        rows = cursor.fetchall()
+        activities = []
+        for r in rows:
+            activities.append({
+                "id": r['idatividade'],
+                "titulo": r['titulo'],
+                "tipo": r['tipo'],
+                "descricao": r['descricao'],
+                "conteudo_especifico": _json.loads(r['conteudo_json']) if r.get('conteudo_json') else None,
+                "icon": r.get('icon') or 'puzzle',
+                "status": r.get('status') or 'available',
+                "turmas": _json.loads(r['turmas']) if r.get('turmas') else []
+            })
+        return jsonify(activities), 200
+
+    except Exception as e:
+        print("Erro ao listar atividades para aluno:", e)
+        return jsonify({"msg": "Erro interno ao buscar atividades."}), 500
     finally:
         if cursor and conexao:
             encerrar_db(cursor, conexao)
