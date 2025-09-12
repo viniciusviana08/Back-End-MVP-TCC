@@ -147,7 +147,7 @@ def get_aluno_perfil():
         if cursor and conexao:
             encerrar_db(cursor, conexao)
 
-# --- ROTA PARA REGISTRAR UMA ATIVIDADE CONCLUÍDA ---
+# --- ROTA PARA REGISTRAR UMA ATIVIDADE CONCLUÍDA (VERSÃO MELHORADA) ---
 @app.route('/api/atividades/completar', methods=['POST'])
 @jwt_required()
 def completar_atividade():
@@ -157,14 +157,15 @@ def completar_atividade():
     
     aluno_id = get_jwt_identity()
     data = request.get_json()
-    id_atividade = data.get('idAtividade') # Ex: 1 para "Correção de Texto"
-    pontuacao = data.get('pontuacao') # Ex: 85
-    feedback = data.get('feedbackGemini') # O feedback recebido da outra API
+    id_atividade = data.get('idAtividade')
+    pontuacao = data.get('pontuacao', 0) # Default para 0 se não for enviado
+    feedback = data.get('feedbackGemini', '') # Default para string vazia
 
     if not id_atividade:
         return jsonify({"msg": "ID da atividade é obrigatório."}), 400
 
-    moedas_ganhas = 10 + (pontuacao // 10 if pontuacao else 0) # Lógica simples de recompensa
+    # Lógica de recompensa: 10 moedas base + 1 moeda para cada 10 pontos
+    moedas_ganhas = 10 + (pontuacao // 10)
 
     conexao = None
     cursor = None
@@ -175,13 +176,21 @@ def completar_atividade():
         comando_insert = 'INSERT INTO AtividadeFeita (idAluno, idAtividade, pontuacao, feedback_gemini) VALUES (%s, %s, %s, %s)'
         cursor.execute(comando_insert, (aluno_id, id_atividade, pontuacao, feedback))
 
-        # 2. Atualiza as moedas do aluno
-        comando_update = 'UPDATE Aluno SET moedas = moedas + %s WHERE idAluno = %s'
+        # 2. Atualiza as moedas do aluno e retorna o novo total
+        comando_update = 'UPDATE Aluno SET moedas = moedas + %s WHERE idAluno = %s RETURNING moedas'
         cursor.execute(comando_update, (moedas_ganhas, aluno_id))
+        
+        # Pega o novo total de moedas retornado pelo comando UPDATE
+        resultado_update = cursor.fetchone()
+        novo_total_moedas = resultado_update['moedas'] if resultado_update else None
         
         conexao.commit()
         
-        return jsonify({"msg": f"Parabéns! Você ganhou {moedas_ganhas} moedas!", "moedasGanhas": moedas_ganhas}), 200
+        return jsonify({
+            "msg": f"Parabéns! Você ganhou {moedas_ganhas} moedas!",
+            "moedasGanhas": moedas_ganhas,
+            "novoTotalMoedas": novo_total_moedas # Envia o novo total para o frontend
+        }), 200
 
     except psycopg2.Error as e:
         if conexao:
