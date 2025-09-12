@@ -147,7 +147,7 @@ def get_aluno_perfil():
         if cursor and conexao:
             encerrar_db(cursor, conexao)
 
-# --- ROTA PARA REGISTRAR UMA ATIVIDADE CONCLUÍDA (VERSÃO MELHORADA) ---
+# --- ROTA PARA REGISTRAR UMA ATIVIDADE CONCLUÍDA (VERSÃO MAIS ROBUSTA) ---
 @app.route('/api/atividades/completar', methods=['POST'])
 @jwt_required()
 def completar_atividade():
@@ -158,8 +158,8 @@ def completar_atividade():
     aluno_id = get_jwt_identity()
     data = request.get_json()
     id_atividade = data.get('idAtividade')
-    pontuacao = data.get('pontuacao', 0) # Default para 0 se não for enviado
-    feedback = data.get('feedbackGemini', '') # Default para string vazia
+    pontuacao = data.get('pontuacao', 0) # Usa 0 como padrão se não for enviado
+    feedback = data.get('feedbackGemini', '') # Usa string vazia como padrão
 
     if not id_atividade:
         return jsonify({"msg": "ID da atividade é obrigatório."}), 400
@@ -180,7 +180,6 @@ def completar_atividade():
         comando_update = 'UPDATE Aluno SET moedas = moedas + %s WHERE idAluno = %s RETURNING moedas'
         cursor.execute(comando_update, (moedas_ganhas, aluno_id))
         
-        # Pega o novo total de moedas retornado pelo comando UPDATE
         resultado_update = cursor.fetchone()
         novo_total_moedas = resultado_update['moedas'] if resultado_update else None
         
@@ -189,7 +188,7 @@ def completar_atividade():
         return jsonify({
             "msg": f"Parabéns! Você ganhou {moedas_ganhas} moedas!",
             "moedasGanhas": moedas_ganhas,
-            "novoTotalMoedas": novo_total_moedas # Envia o novo total para o frontend
+            "novoTotalMoedas": novo_total_moedas
         }), 200
 
     except psycopg2.Error as e:
