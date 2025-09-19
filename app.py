@@ -87,35 +87,53 @@ def register_aluno():
     cpf = data.get('cpfAluno')
     email = data.get('emailAluno')
     senha = data.get('senhaAluno')
-    id_professor = data.get('idProfessor') # Novo campo recebido
+    idProfessor = data.get('idProfessor', None)
+    anoAluno = data.get('anoAluno') # NOVO: Captura o ano do aluno
 
-    # Adiciona a validação do novo campo
-    if not all([nome, cpf, email, senha, id_professor]):
-        return jsonify({"msg": "Todos os campos, incluindo o professor, são obrigatórios"}), 400
+    if not nome or not cpf or not email or not senha or not anoAluno: # NOVO: Valida se o ano foi enviado
+        return jsonify({"msg": "Nome, CPF, email, senha e ano são obrigatórios."}), 400
 
-    hashed_password = generate_password_hash(senha)
-    
-    conexao = None
-    cursor = None
+    conexao, cursor = None, None
     try:
         conexao, cursor = conectar_db()
-        # Atualiza o comando SQL para inserir o idProfessor
-        comandoSQL = 'INSERT INTO Aluno (nomeAluno, cpfAluno, emailAluno, senhaAluno, status, moedas, nivel, idProfessor) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)'
-        cursor.execute(comandoSQL, (nome, cpf, email, hashed_password, 'ativo', 100, 'Iniciante 1', id_professor))
-        conexao.commit()
-        return jsonify({"msg": f"Aluno '{nome}' cadastrado com sucesso! Faça o login para começar."}), 201
+        
+        # Hash da senha
+        hashed_senha = generate_password_hash(senha)
 
-    except errors.UniqueViolation:
+        # Verificar se email ou CPF já existem
+        cursor.execute("SELECT idAluno FROM Aluno WHERE emailAluno = %s OR cpfAluno = %s;", (email, cpf))
+        if cursor.fetchone():
+            return jsonify({"msg": "Email ou CPF já cadastrados."}), 409
+
+        # Inserir o novo aluno, incluindo o anoAluno
+        cursor.execute(
+            """
+            INSERT INTO Aluno (nomeAluno, cpfAluno, emailAluno, senhaAluno, idProfessor, anoAluno)
+            VALUES (%s, %s, %s, %s, %s, %s) RETURNING idAluno;
+            """,
+            (nome, limpar_input(cpf), email, hashed_senha, idProfessor, anoAluno) # NOVO: Adiciona a variável anoAluno aqui
+        )
+        
+        id_novo_aluno = cursor.fetchone()['idaluno']
+        conexao.commit()
+        
+        return jsonify({
+            "msg": "Aluno cadastrado com sucesso!",
+            "idAluno": id_novo_aluno
+        }), 201
+
+    except errors.UniqueViolation as e:
         conexao.rollback()
-        return jsonify({"msg": "Já existe um aluno com este CPF ou e-mail."}), 409
-    except psycopg2.Error as e:
+        return jsonify({"msg": "Erro: Já existe um cadastro com este email ou CPF."}), 409
+    except Exception as e:
+        print(f"Erro ao cadastrar aluno: {e}")
         if conexao:
             conexao.rollback()
-        print(f"Erro de Banco de Dados ao cadastrar aluno: {e}")
-        return jsonify({"msg": "Erro interno no servidor."}), 500
+        return jsonify({"msg": "Erro interno do servidor ao cadastrar."}), 500
     finally:
         if cursor and conexao:
             encerrar_db(cursor, conexao)
+
 
 # --- ROTA PARA OBTER DADOS DO PERFIL DO ALUNO LOGADO ---
 @app.route('/api/aluno/perfil', methods=['GET'])

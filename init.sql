@@ -17,7 +17,10 @@ CREATE TABLE Aluno (
     senhaAluno VARCHAR(255) NOT NULL,
     status VARCHAR(10) NOT NULL DEFAULT 'ativo' CHECK (status IN ('ativo', 'inativo')),
     moedas INT NOT NULL DEFAULT 100,
-    nivel VARCHAR(50) NOT NULL DEFAULT 'Iniciante 1'
+    nivel VARCHAR(50) NOT NULL DEFAULT 'Iniciante 1',
+    sala_aluno VARCHAR(50) NOT NULL,
+    idProfessor INT,
+    FOREIGN KEY (idProfessor) REFERENCES Professor(idProfessor)
 );
 
 CREATE TABLE Atividade (
