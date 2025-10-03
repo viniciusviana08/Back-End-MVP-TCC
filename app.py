@@ -624,6 +624,76 @@ def buscar_alunos_por_nome():
         if cursor and conexao:
             encerrar_db(cursor, conexao)
 
+# --- ROTA PARA OBTER DADOS DO PERFIL DO PROFESSOR LOGADO ---
+@app.route('/api/professor/perfil', methods=['GET'])
+@jwt_required()
+def get_professor_perfil():
+    claims = get_jwt()
+    if claims.get('role') != 'professor':
+        return jsonify({"msg": "Acesso negado. Apenas para professores."}), 403
+    
+    professor_id = get_jwt_identity()
+
+    conexao = None
+    cursor = None
+    try:
+        conexao, cursor = conectar_db()
+        # Busca os dados do professor
+        cursor.execute('SELECT nomeProfessor, emailProfessor, urlFotoPerfil FROM Professor WHERE idProfessor = %s', (professor_id,))
+        professor_data = cursor.fetchone()
+
+        if not professor_data:
+            return jsonify({"msg": "Professor não encontrado."}), 404
+        
+        # Busca as turmas distintas que este professor leciona
+        cursor.execute("SELECT DISTINCT anoAluno FROM Aluno WHERE idProfessor = %s ORDER BY anoAluno", (professor_id,))
+        turmas_raw = cursor.fetchall()
+        # Converte a lista de dicionários para uma lista de strings
+        professor_data['turmas'] = [turma['anoaluno'] for turma in turmas_raw if turma['anoaluno']]
+
+        return jsonify(professor_data), 200
+
+    except psycopg2.Error as e:
+        print(f"Erro de Banco de Dados no perfil do professor: {e}")
+        return jsonify({"msg": "Erro interno no servidor."}), 500
+    finally:
+        if cursor and conexao:
+            encerrar_db(cursor, conexao)
+
+# --- ROTA PARA ATUALIZAR DADOS DO PERFIL DO PROFESSOR ---
+@app.route('/api/professor/perfil', methods=['PUT'])
+@jwt_required()
+def update_professor_perfil():
+    claims = get_jwt()
+    if claims.get('role') != 'professor':
+        return jsonify({"msg": "Acesso negado."}), 403
+    
+    professor_id = get_jwt_identity()
+    data = request.get_json()
+    novo_nome = data.get('nome')
+    # Poderíamos adicionar outros campos como 'materias' aqui se tivéssemos uma coluna no DB
+
+    if not novo_nome:
+        return jsonify({"msg": "O nome não pode ser vazio."}), 400
+
+    conexao = None
+    cursor = None
+    try:
+        conexao, cursor = conectar_db()
+        cursor.execute('UPDATE Professor SET nomeProfessor = %s WHERE idProfessor = %s', (novo_nome, professor_id))
+        conexao.commit()
+        
+        # Atualiza o nome no localStorage do frontend
+        return jsonify({"msg": "Perfil atualizado com sucesso!", "novoNome": novo_nome}), 200
+
+    except psycopg2.Error as e:
+        if conexao: conexao.rollback()
+        print(f"Erro ao atualizar perfil do professor: {e}")
+        return jsonify({"msg": "Erro interno ao atualizar perfil."}), 500
+    finally:
+        if cursor and conexao:
+            encerrar_db(cursor, conexao)
+
 if __name__ == '__main__':
     # Render usa um servidor WSGI (como Gunicorn), mas isso é bom para testes locais.
     # O Render ignora isso e usa o comando do seu "Build Command".
