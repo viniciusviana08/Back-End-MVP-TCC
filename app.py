@@ -577,6 +577,53 @@ def listar_atividades_para_aluno():
         if cursor and conexao:
             encerrar_db(cursor, conexao)
 
+
+
+# --- NOVA ROTA PARA BUSCAR ALUNOS POR NOME ---
+@app.route('/api/professor/alunos/buscar', methods=['GET'])
+@jwt_required()
+def buscar_alunos_por_nome():
+    claims = get_jwt()
+    if claims.get('role') != 'professor':
+        return jsonify({"msg": "Acesso negado. Apenas para professores."}), 403
+    
+    professor_id = get_jwt_identity()
+    
+    # Pega o termo de busca dos parâmetros da URL (ex: /buscar?nome=João)
+    termo_busca = request.args.get('nome', '').strip()
+
+    # Validação para não buscar com menos de 2 caracteres
+    if len(termo_busca) < 2:
+        return jsonify([]) # Retorna uma lista vazia se a busca for muito curta
+
+    conexao = None
+    cursor = None
+    try:
+        conexao, cursor = conectar_db()
+        
+        # O operador ILIKE é case-insensitive (não diferencia maiúsculas/minúsculas)
+        # Os '%' são curingas: buscam qualquer coisa antes e depois do termo
+        query = """
+            SELECT idAluno, nomeAluno, emailAluno, status, moedas, nivel, anoAluno 
+            FROM Aluno 
+            WHERE idProfessor = %s AND nomeAluno ILIKE %s
+            ORDER BY nomeAluno
+        """
+        # Formata o termo de busca para a query SQL
+        termo_formatado = f"%{termo_busca}%"
+        
+        cursor.execute(query, (professor_id, termo_formatado))
+        alunos_encontrados = cursor.fetchall()
+        
+        return jsonify(alunos_encontrados), 200
+
+    except psycopg2.Error as e:
+        print(f"Erro ao buscar alunos: {e}")
+        return jsonify({"msg": "Erro interno ao realizar a busca."}), 500
+    finally:
+        if cursor and conexao:
+            encerrar_db(cursor, conexao)
+
 if __name__ == '__main__':
     # Render usa um servidor WSGI (como Gunicorn), mas isso é bom para testes locais.
     # O Render ignora isso e usa o comando do seu "Build Command".
