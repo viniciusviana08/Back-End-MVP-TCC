@@ -135,24 +135,31 @@ def register_aluno():
             encerrar_db(cursor, conexao)
 
 
-# --- ROTA PARA OBTER DADOS DO PERFIL DO ALUNO LOGADO ---
+# --- ROTA PARA OBTER DADOS DO PERFIL DO ALUNO LOGADO (VERSÃO MELHORADA) ---
 @app.route('/api/aluno/perfil', methods=['GET'])
 @jwt_required()
 def get_aluno_perfil():
-    # Verifica se o token pertence a um aluno
     claims = get_jwt()
     if claims.get('role') != 'aluno':
         return jsonify({"msg": "Acesso negado. Apenas para alunos."}), 403
     
-    # Pega o ID do aluno a partir do token
     aluno_id = get_jwt_identity()
-
     conexao = None
     cursor = None
     try:
         conexao, cursor = conectar_db()
-        cursor.execute('SELECT nomeAluno, emailAluno, moedas, nivel FROM Aluno WHERE idAluno = %s', (aluno_id,))
+        # Query que junta as tabelas Aluno e Professor para obter o nome do professor
+        query = """
+            SELECT 
+                a.nomeAluno, a.emailAluno, a.moedas, a.nivel, a.anoAluno, a.urlFotoPerfil,
+                p.nomeProfessor
+            FROM Aluno a
+            LEFT JOIN Professor p ON a.idProfessor = p.idProfessor
+            WHERE a.idAluno = %s
+        """
+        cursor.execute(query, (aluno_id,))
         aluno_data = cursor.fetchone()
+
         if not aluno_data:
             return jsonify({"msg": "Aluno não encontrado."}), 404
         
@@ -161,6 +168,69 @@ def get_aluno_perfil():
     except psycopg2.Error as e:
         print(f"Erro de Banco de Dados no perfil do aluno: {e}")
         return jsonify({"msg": "Erro interno no servidor."}), 500
+    finally:
+        if cursor and conexao:
+            encerrar_db(cursor, conexao)
+
+# --- ROTA PARA ATUALIZAR DADOS DO PERFIL DO ALUNO ---
+@app.route('/api/aluno/perfil', methods=['PUT'])
+@jwt_required()
+def update_aluno_perfil():
+    claims = get_jwt()
+    if claims.get('role') != 'aluno':
+        return jsonify({"msg": "Acesso negado."}), 403
+    
+    aluno_id = get_jwt_identity()
+    data = request.get_json()
+    novo_nome = data.get('nome')
+
+    if not novo_nome:
+        return jsonify({"msg": "O nome não pode ser vazio."}), 400
+
+    conexao = None
+    cursor = None
+    try:
+        conexao, cursor = conectar_db()
+        cursor.execute('UPDATE Aluno SET nomeAluno = %s WHERE idAluno = %s', (novo_nome, aluno_id))
+        conexao.commit()
+        
+        return jsonify({"msg": "Nome atualizado com sucesso!", "novoNome": novo_nome}), 200
+
+    except psycopg2.Error as e:
+        if conexao: conexao.rollback()
+        print(f"Erro ao atualizar perfil do aluno: {e}")
+        return jsonify({"msg": "Erro interno ao atualizar perfil."}), 500
+    finally:
+        if cursor and conexao:
+            encerrar_db(cursor, conexao)
+            
+# --- ROTA PARA "UPLOAD" DE FOTO DO ALUNO ---
+# Versão simplificada que apenas salva a URL da imagem.
+@app.route('/api/aluno/perfil/foto', methods=['POST'])
+@jwt_required()
+def update_aluno_foto():
+    claims = get_jwt()
+    if claims.get('role') != 'aluno':
+        return jsonify({"msg": "Acesso negado."}), 403
+    
+    aluno_id = get_jwt_identity()
+    data = request.get_json()
+    url_foto = data.get('urlFoto') # Espera uma URL da imagem em base64
+
+    if not url_foto:
+        return jsonify({"msg": "URL da foto é obrigatória."}), 400
+
+    conexao = None
+    cursor = None
+    try:
+        conexao, cursor = conectar_db()
+        cursor.execute('UPDATE Aluno SET urlFotoPerfil = %s WHERE idAluno = %s', (url_foto, aluno_id))
+        conexao.commit()
+        return jsonify({"msg": "Foto de perfil atualizada!"}), 200
+
+    except psycopg2.Error as e:
+        if conexao: conexao.rollback()
+        return jsonify({"msg": "Erro interno ao salvar a foto."}), 500
     finally:
         if cursor and conexao:
             encerrar_db(cursor, conexao)
