@@ -431,7 +431,7 @@ def listar_professores_publico():
         if cursor and conexao:
             encerrar_db(cursor, conexao)
 
-# --- NOVA ROTA PARA O PROFESSOR VER SEUS ALUNOS ---
+# --- ROTA PARA O PROFESSOR VER SEUS ALUNOS (AGORA AGRUPADOS POR TURMA) ---
 @app.route('/api/professor/alunos', methods=['GET'])
 @jwt_required()
 def listar_alunos_do_professor():
@@ -445,11 +445,32 @@ def listar_alunos_do_professor():
     cursor = None
     try:
         conexao, cursor = conectar_db()
-        # Busca todos os alunos vinculados a este professor
-        comando = "SELECT idAluno, nomeAluno, emailAluno, status, moedas, nivel FROM Aluno WHERE idProfessor = %s ORDER BY nomeAluno"
+        # Busca todos os alunos vinculados, ordenando por turma e depois por nome
+        comando = """
+            SELECT idAluno, nomeAluno, emailAluno, status, moedas, nivel, anoAluno 
+            FROM Aluno 
+            WHERE idProfessor = %s 
+            ORDER BY anoAluno, nomeAluno
+        """
         cursor.execute(comando, (professor_id,))
         alunos = cursor.fetchall()
-        return jsonify(alunos), 200
+        
+        # --- LÓGICA DE AGRUPAMENTO ---
+        turmas = {}
+        for aluno in alunos:
+            # Usa 'Sem Turma' como padrão se o campo for nulo ou vazio
+            turma_nome = aluno.get('anoaluno') or 'Alunos Sem Turma' 
+            
+            # Se a turma ainda não existe no nosso dicionário, cria a chave com uma lista vazia
+            if turma_nome not in turmas:
+                turmas[turma_nome] = []
+            
+            # Adiciona o aluno à lista da sua respectiva turma
+            turmas[turma_nome].append(aluno)
+            
+        # O resultado final será um objeto, ex: {"1º Ano A": [...alunos], "2º Ano B": [...alunos]}
+        return jsonify(turmas), 200
+
     except psycopg2.Error as e:
         print(f"Erro ao buscar alunos do professor: {e}")
         return jsonify({"msg": "Erro interno ao buscar alunos."}), 500
