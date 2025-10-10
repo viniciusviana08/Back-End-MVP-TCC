@@ -254,6 +254,12 @@ def completar_atividade():
     # Lógica de recompensa: 10 moedas base + 1 moeda para cada 10 pontos
     moedas_ganhas = 10 + (pontuacao // 10)
 
+    # CORREÇÃO: Garante que idAtividade seja int
+    try:
+        id_atividade = int(id_atividade)
+    except ValueError:
+        return jsonify({"msg": "ID da atividade inválido."}), 400
+
     conexao = None
     cursor = None
     try:
@@ -271,6 +277,7 @@ def completar_atividade():
         novo_total_moedas = resultado_update['moedas'] if resultado_update else None
         
         conexao.commit()
+        print(f"Moedas ganhas: {moedas_ganhas} para aluno {aluno_id} na atividade {id_atividade}")  # Log para debug
         
         return jsonify({
             "msg": f"Parabéns! Você ganhou {moedas_ganhas} moedas!",
