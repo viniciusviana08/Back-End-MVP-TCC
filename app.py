@@ -564,12 +564,7 @@ def criar_atividade_professor():
     if claims.get('role') != 'professor':
         return jsonify({"msg": "Acesso negado. Apenas professores."}), 403
 
-    professor_id = get_jwt_identity()  # no seu login identity foi string do idProfessor
-    # converte pra int se necessário
-    try:
-        professor_id_int = int(professor_id)
-    except:
-        professor_id_int = professor_id
+    professor_id = get_jwt_identity()
 
     data = request.get_json() or {}
     titulo = data.get('titulo')
@@ -586,22 +581,39 @@ def criar_atividade_professor():
     cursor = None
     try:
         conexao, cursor = conectar_db()
+        
+        # Converte o conteúdo para JSON string se for dicionário
+        if isinstance(conteudo, dict):
+            conteudo_json = _json.dumps(conteudo)
+        else:
+            conteudo_json = str(conteudo)
+            
+        # Converte turmas para JSON string se for lista
+        if isinstance(turmas, list):
+            turmas_json = _json.dumps(turmas)
+        else:
+            turmas_json = '[]'
+
         comando = '''
             INSERT INTO Atividade (titulo, tipo, descricao, conteudo_json, icon, idProfessor, status, turmas)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING idAtividade
         '''
         cursor.execute(comando, (
-            titulo, tipo, descricao, _json.dumps(conteudo), icon, professor_id_int, 'available', _json.dumps(turmas)
+            titulo, tipo, descricao, conteudo_json, icon, professor_id, 'available', turmas_json
         ))
-        novo_id = cursor.fetchone()['idatividade']  # ajuste caso o dict use chave diferente
+        novo_id = cursor.fetchone()['idatividade']
         conexao.commit()
-        return jsonify({"msg": "Atividade criada.", "idAtividade": novo_id}), 201
+        
+        return jsonify({
+            "msg": "Atividade criada com sucesso!", 
+            "idAtividade": novo_id
+        }), 201
 
     except Exception as e:
         if conexao:
             conexao.rollback()
         print("Erro ao criar atividade:", e)
-        return jsonify({"msg": "Erro interno ao criar atividade."}), 500
+        return jsonify({"msg": f"Erro interno ao criar atividade: {str(e)}"}), 500
     finally:
         if cursor and conexao:
             encerrar_db(cursor, conexao)
