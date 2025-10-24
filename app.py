@@ -135,7 +135,7 @@ def register_aluno():
             encerrar_db(cursor, conexao)
 
 
-# --- ROTA PARA OBTER DADOS DO PERFIL DO ALUNO LOGADO (VERSÃO MELHORADA) ---
+# --- ROTA PARA OBTER DADOS DO PERFIL DO ALUNO LOGADO (VERSÃO COMPLETA) ---
 @app.route('/api/aluno/perfil', methods=['GET'])
 @jwt_required()
 def get_aluno_perfil():
@@ -148,8 +148,9 @@ def get_aluno_perfil():
     cursor = None
     try:
         conexao, cursor = conectar_db()
-        # Query que junta as tabelas Aluno e Professor para obter o nome do professor
-        query = """
+        
+        # Query principal para pegar dados do aluno e nome do professor
+        query_aluno = """
             SELECT 
                 a.nomeAluno, a.emailAluno, a.moedas, a.nivel, a.anoAluno, a.urlFotoPerfil,
                 p.nomeProfessor
@@ -157,12 +158,28 @@ def get_aluno_perfil():
             LEFT JOIN Professor p ON a.idProfessor = p.idProfessor
             WHERE a.idAluno = %s
         """
-        cursor.execute(query, (aluno_id,))
+        cursor.execute(query_aluno, (aluno_id,))
         aluno_data = cursor.fetchone()
 
         if not aluno_data:
             return jsonify({"msg": "Aluno não encontrado."}), 404
-        
+            
+        # Query secundária para calcular estatísticas de progresso
+        query_progresso = """
+            SELECT 
+                COUNT(*) AS total_atividades, 
+                AVG(pontuacao) AS media_pontuacao
+            FROM AtividadeFeita
+            WHERE idAluno = %s
+        """
+        cursor.execute(query_progresso, (aluno_id,))
+        progresso_data = cursor.fetchone()
+
+        # Adiciona os dados de progresso ao dicionário principal
+        aluno_data['total_atividades_concluidas'] = progresso_data['total_atividades'] or 0
+        # Formata a média para um número inteiro
+        aluno_data['media_geral'] = int(progresso_data['media_pontuacao']) if progresso_data['media_pontuacao'] else 0
+
         return jsonify(aluno_data), 200
 
     except psycopg2.Error as e:
