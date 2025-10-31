@@ -359,6 +359,40 @@ def cadastrar_professor():
             encerrar_db(cursor, conexao)
 
 
+# --- ROTA PARA "UPLOAD" DE FOTO DO PROFESSOR ---
+@app.route('/api/professor/perfil/foto', methods=['POST'])
+@jwt_required()
+def update_professor_foto():
+    claims = get_jwt()
+    if claims.get('role') != 'professor':
+        return jsonify({"msg": "Acesso negado."}), 403
+    
+    professor_id = get_jwt_identity()
+    data = request.get_json()
+    url_foto = data.get('urlFoto')  # Recebe a imagem em Base64
+
+    if not url_foto:
+        return jsonify({"msg": "URL da foto é obrigatória."}), 400
+
+    conexao, cursor = None, None
+    try:
+        conexao, cursor = conectar_db()
+        cursor.execute('UPDATE Professor SET urlFotoPerfil = %s WHERE idProfessor = %s', (url_foto, professor_id))
+        conexao.commit()
+        return jsonify({"msg": "Foto de perfil atualizada com sucesso!"}), 200
+
+    except psycopg2.Error as e:
+        if conexao:
+            conexao.rollback()
+        print(f"Erro ao salvar foto do professor: {e}")
+        return jsonify({"msg": "Erro interno ao salvar a foto."}), 500
+
+    finally:
+        if cursor and conexao:
+            encerrar_db(cursor, conexao)
+
+
+
 
 @app.route('/api/aluno', methods=['POST'])
 @jwt_required()
