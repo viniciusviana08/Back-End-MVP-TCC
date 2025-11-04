@@ -260,63 +260,86 @@ def completar_atividade():
         return jsonify({"msg": "Apenas alunos podem completar atividades."}), 403
 
     aluno_id = get_jwt_identity()
-    data = request.get_json()
+    data = request.get_json() or {}
     id_atividade = data.get('idAtividade')
-    pontuacao = max(0, int(data.get('pontuacao', 0)))  # garante que não seja negativa
+    try:
+        pontuacao = max(0, int(data.get('pontuacao', 0)))
+    except (ValueError, TypeError):
+        return jsonify({"msg": "Pontuação inválida."}), 400
     feedback = data.get('feedback', '')
 
     if not id_atividade:
         return jsonify({"msg": "ID da atividade é obrigatório."}), 400
 
-    # Lógica de recompensa: 10 moedas base + 1 moeda por 10 pontos
-    moedas_ganhas = max(5, 10 + (pontuacao // 10))
-
     conexao, cursor = None, None
     try:
         conexao, cursor = conectar_db()
 
-        # 🔸 1. Verifica se o aluno já fez essa atividade antes
+        # 0) Confirma que aluno existe (por segurança)
+        cursor.execute("SELECT idAluno FROM Aluno WHERE idAluno = %s", (aluno_id,))
+        if not cursor.fetchone():
+            return jsonify({"msg": "Aluno não encontrado."}), 404
+
+        # 0.5) Confirma que atividade existe
+        cursor.execute("SELECT idAtividade FROM Atividade WHERE idAtividade = %s", (id_atividade,))
+        if not cursor.fetchone():
+            return jsonify({"msg": "Atividade não encontrada."}), 404
+
+        # Lógica de recompensa: 10 moedas base + 1 moeda por 10 pontos (mínimo 5)
+        moedas_ganhas = max(5, 10 + (pontuacao // 10))
+
+        # 1) Verifica duplicidade (evita duplicar registros)
         cursor.execute("""
             SELECT idAtividadeFeita FROM AtividadeFeita
             WHERE idAluno = %s AND idAtividade = %s
         """, (aluno_id, id_atividade))
-        atividade_existente = cursor.fetchone()
-
-        if atividade_existente:
+        if cursor.fetchone():
             return jsonify({
                 "msg": "Atividade já registrada anteriormente.",
                 "moedasGanhas": 0
             }), 200
 
-        # 🔸 2. Registra a atividade feita
+        # 2) Insere a atividade feita e retorna o id gerado
         cursor.execute("""
             INSERT INTO AtividadeFeita (idAluno, idAtividade, pontuacao, feedback_gemini)
             VALUES (%s, %s, %s, %s)
+            RETURNING idAtividadeFeita
         """, (aluno_id, id_atividade, pontuacao, feedback))
+        result = cursor.fetchone()
+        id_atividade_feita = result['idatividadefeita'] if result and 'idatividadefeita' in result else (result[0] if result else None)
 
-        # 🔸 3. Atualiza o saldo de moedas do aluno
+        # 3) Atualiza as moedas do aluno (retorna o novo saldo)
         cursor.execute("""
             UPDATE Aluno
             SET moedas = moedas + %s
             WHERE idAluno = %s
             RETURNING moedas
         """, (moedas_ganhas, aluno_id))
-        novo_saldo = cursor.fetchone()['moedas']
+        novo_saldo_row = cursor.fetchone()
+        novo_saldo = novo_saldo_row['moedas'] if novo_saldo_row and 'moedas' in novo_saldo_row else (novo_saldo_row[0] if novo_saldo_row else None)
 
         conexao.commit()
-        print(f"[🎯 RECOMPENSA] Aluno {aluno_id} ganhou {moedas_ganhas} moedas na atividade {id_atividade}")
+        app.logger.info(f"[RECOMPENSA] aluno={aluno_id} atividade={id_atividade} ganhou={moedas_ganhas} idAtividadeFeita={id_atividade_feita}")
 
         return jsonify({
-            "msg": f"Atividade registrada com sucesso! Você ganhou {moedas_ganhas} moedas!",
+            "msg": "Atividade registrada com sucesso!",
+            "idAtividadeFeita": id_atividade_feita,
             "moedasGanhas": moedas_ganhas,
             "novoTotalMoedas": novo_saldo
         }), 200
 
+    except IntegrityError as ie:
+        if conexao:
+            conexao.rollback()
+        app.logger.exception("IntegrityError ao salvar AtividadeFeita")
+        return jsonify({"msg": "Violação de integridade ao salvar atividade (verifique FK/constraints).", "detail": str(ie)}), 400
+
     except Exception as e:
         if conexao:
             conexao.rollback()
-        print(f"Erro ao completar atividade: {e}")
-        return jsonify({"msg": "Erro interno ao salvar progresso."}), 500
+        app.logger.exception("Erro ao completar atividade")
+        return jsonify({"msg": "Erro interno ao salvar progresso.", "detail": str(e)}), 500
+
     finally:
         if cursor and conexao:
             encerrar_db(cursor, conexao)
