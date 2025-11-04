@@ -10,7 +10,6 @@ from config import *
 from db_functions import *
 from flask import current_app
 import json as _json
-from psycopg2 import IntegrityError
 import os
 
 app = Flask(__name__)
@@ -261,106 +260,66 @@ def completar_atividade():
         return jsonify({"msg": "Apenas alunos podem completar atividades."}), 403
 
     aluno_id = get_jwt_identity()
-    data = request.get_json() or {}
+    data = request.get_json()
     id_atividade = data.get('idAtividade')
-    try:
-        pontuacao = max(0, int(data.get('pontuacao', 0)))
-    except (ValueError, TypeError):
-        return jsonify({"msg": "Pontuação inválida."}), 400
+    pontuacao = max(0, int(data.get('pontuacao', 0)))  # garante que não seja negativa
     feedback = data.get('feedback', '')
 
     if not id_atividade:
         return jsonify({"msg": "ID da atividade é obrigatório."}), 400
 
+    # Lógica de recompensa: 10 moedas base + 1 moeda por 10 pontos
+    moedas_ganhas = max(5, 10 + (pontuacao // 10))
+
     conexao, cursor = None, None
     try:
         conexao, cursor = conectar_db()
 
-        # 0) Confirma que aluno existe
-        cursor.execute("SELECT idAluno FROM Aluno WHERE idAluno = %s", (aluno_id,))
-        if not cursor.fetchone():
-            return jsonify({"msg": "Aluno não encontrado."}), 404
-
-        # 0.5) Confirma que atividade existe — se não, cria automaticamente
-        cursor.execute("SELECT idAtividade FROM Atividade WHERE idAtividade = %s", (id_atividade,))
-        atividade = cursor.fetchone()
-        if not atividade:
-            # Cria automaticamente uma atividade padrão “TypeRun (AutoGerada)”
-            cursor.execute("""
-                INSERT INTO Atividade (titulo, tipo, descricao, conteudo_json, icon, status, turmas)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-                RETURNING idAtividade
-            """, (
-                'Caça-Erros (TypeRun)',
-                'Jogo',
-                'Atividade autogerada pelo sistema durante o jogo TypeRun.',
-                '{}',
-                'keyboard',
-                'available',
-                '[]'
-            ))
-            nova = cursor.fetchone()
-            id_atividade = nova['idatividade'] if nova and 'idatividade' in nova else (nova[0] if nova else id_atividade)
-
-        # Lógica de recompensa: 10 moedas base + 1 moeda por 10 pontos (mínimo 5)
-        moedas_ganhas = max(5, 10 + (pontuacao // 10))
-
-        # 1) Verifica duplicidade (evita duplicar registros)
+        # 🔸 1. Verifica se o aluno já fez essa atividade antes
         cursor.execute("""
             SELECT idAtividadeFeita FROM AtividadeFeita
             WHERE idAluno = %s AND idAtividade = %s
         """, (aluno_id, id_atividade))
-        if cursor.fetchone():
+        atividade_existente = cursor.fetchone()
+
+        if atividade_existente:
             return jsonify({
                 "msg": "Atividade já registrada anteriormente.",
                 "moedasGanhas": 0
             }), 200
 
-        # 2) Insere o registro de atividade feita
+        # 🔸 2. Registra a atividade feita
         cursor.execute("""
             INSERT INTO AtividadeFeita (idAluno, idAtividade, pontuacao, feedback_gemini)
             VALUES (%s, %s, %s, %s)
-            RETURNING idAtividadeFeita
         """, (aluno_id, id_atividade, pontuacao, feedback))
-        result = cursor.fetchone()
-        id_atividade_feita = result['idatividadefeita'] if result and 'idatividadefeita' in result else (result[0] if result else None)
 
-        # 3) Atualiza as moedas do aluno
+        # 🔸 3. Atualiza o saldo de moedas do aluno
         cursor.execute("""
             UPDATE Aluno
             SET moedas = moedas + %s
             WHERE idAluno = %s
             RETURNING moedas
         """, (moedas_ganhas, aluno_id))
-        novo_saldo_row = cursor.fetchone()
-        novo_saldo = novo_saldo_row['moedas'] if novo_saldo_row and 'moedas' in novo_saldo_row else (novo_saldo_row[0] if novo_saldo_row else None)
+        novo_saldo = cursor.fetchone()['moedas']
 
         conexao.commit()
-        app.logger.info(f"[RECOMPENSA] aluno={aluno_id} atividade={id_atividade} ganhou={moedas_ganhas} idAtividadeFeita={id_atividade_feita}")
+        print(f"[🎯 RECOMPENSA] Aluno {aluno_id} ganhou {moedas_ganhas} moedas na atividade {id_atividade}")
 
         return jsonify({
-            "msg": "Atividade registrada com sucesso!",
-            "idAtividadeFeita": id_atividade_feita,
+            "msg": f"Atividade registrada com sucesso! Você ganhou {moedas_ganhas} moedas!",
             "moedasGanhas": moedas_ganhas,
             "novoTotalMoedas": novo_saldo
         }), 200
 
-    except IntegrityError as ie:
-        if conexao:
-            conexao.rollback()
-        app.logger.exception("IntegrityError ao salvar AtividadeFeita")
-        return jsonify({"msg": "Violação de integridade ao salvar atividade (verifique FK/constraints).", "detail": str(ie)}), 400
-
     except Exception as e:
         if conexao:
             conexao.rollback()
-        app.logger.exception("Erro ao completar atividade")
-        return jsonify({"msg": "Erro interno ao salvar progresso.", "detail": str(e)}), 500
-
+        print(f"Erro ao completar atividade: {e}")
+        return jsonify({"msg": "Erro interno ao salvar progresso."}), 500
     finally:
         if cursor and conexao:
             encerrar_db(cursor, conexao)
-
 
 
 # --- ROTA DE CADASTRO DE Professor (ATUALIZADA) ---
