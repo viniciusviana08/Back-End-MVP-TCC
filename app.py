@@ -258,58 +258,69 @@ def completar_atividade():
     claims = get_jwt()
     if claims.get('role') != 'aluno':
         return jsonify({"msg": "Apenas alunos podem completar atividades."}), 403
-    
+
     aluno_id = get_jwt_identity()
     data = request.get_json()
     id_atividade = data.get('idAtividade')
-    pontuacao = data.get('pontuacao', 0)
+    pontuacao = max(0, int(data.get('pontuacao', 0)))  # garante que não seja negativa
     feedback = data.get('feedback', '')
 
     if not id_atividade:
         return jsonify({"msg": "ID da atividade é obrigatório."}), 400
 
-    # Lógica de recompensa: 10 moedas base + 1 moeda para cada 10 pontos
-    moedas_ganhas = 10 + (pontuacao // 10)
+    # Lógica de recompensa: 10 moedas base + 1 moeda por 10 pontos
+    moedas_ganhas = max(5, 10 + (pontuacao // 10))
 
-    # CORREÇÃO: Garante que idAtividade seja int
-    try:
-        id_atividade = int(id_atividade)
-    except ValueError:
-        return jsonify({"msg": "ID da atividade inválido."}), 400
-
-    conexao = None
-    cursor = None
+    conexao, cursor = None, None
     try:
         conexao, cursor = conectar_db()
-        
-        # 1. Insere na tabela AtividadeFeita para registrar o progresso
-        comando_insert = 'INSERT INTO AtividadeFeita (idAluno, idAtividade, pontuacao, feedback_gemini) VALUES (%s, %s, %s, %s)'
-        cursor.execute(comando_insert, (aluno_id, id_atividade, pontuacao, feedback))
 
-        # 2. Atualiza as moedas do aluno e retorna o novo total
-        comando_update = 'UPDATE Aluno SET moedas = moedas + %s WHERE idAluno = %s RETURNING moedas'
-        cursor.execute(comando_update, (moedas_ganhas, aluno_id))
-        
-        resultado_update = cursor.fetchone()
-        novo_total_moedas = resultado_update['moedas'] if resultado_update else None
-        
+        # 🔸 1. Verifica se o aluno já fez essa atividade antes
+        cursor.execute("""
+            SELECT idAtividadeFeita FROM AtividadeFeita
+            WHERE idAluno = %s AND idAtividade = %s
+        """, (aluno_id, id_atividade))
+        atividade_existente = cursor.fetchone()
+
+        if atividade_existente:
+            return jsonify({
+                "msg": "Atividade já registrada anteriormente.",
+                "moedasGanhas": 0
+            }), 200
+
+        # 🔸 2. Registra a atividade feita
+        cursor.execute("""
+            INSERT INTO AtividadeFeita (idAluno, idAtividade, pontuacao, feedback_gemini)
+            VALUES (%s, %s, %s, %s)
+        """, (aluno_id, id_atividade, pontuacao, feedback))
+
+        # 🔸 3. Atualiza o saldo de moedas do aluno
+        cursor.execute("""
+            UPDATE Aluno
+            SET moedas = moedas + %s
+            WHERE idAluno = %s
+            RETURNING moedas
+        """, (moedas_ganhas, aluno_id))
+        novo_saldo = cursor.fetchone()['moedas']
+
         conexao.commit()
-        print(f"Moedas ganhas: {moedas_ganhas} para aluno {aluno_id} na atividade {id_atividade}")  # Log para debug
-        
+        print(f"[🎯 RECOMPENSA] Aluno {aluno_id} ganhou {moedas_ganhas} moedas na atividade {id_atividade}")
+
         return jsonify({
-            "msg": f"Parabéns! Você ganhou {moedas_ganhas} moedas!",
+            "msg": f"Atividade registrada com sucesso! Você ganhou {moedas_ganhas} moedas!",
             "moedasGanhas": moedas_ganhas,
-            "novoTotalMoedas": novo_total_moedas
+            "novoTotalMoedas": novo_saldo
         }), 200
 
-    except psycopg2.Error as e:
+    except Exception as e:
         if conexao:
             conexao.rollback()
         print(f"Erro ao completar atividade: {e}")
-        return jsonify({"msg": "Erro interno ao salvar seu progresso."}), 500
+        return jsonify({"msg": "Erro interno ao salvar progresso."}), 500
     finally:
         if cursor and conexao:
             encerrar_db(cursor, conexao)
+
 
 # --- ROTA DE CADASTRO DE Professor (ATUALIZADA) ---
 # CORREÇÃO: A rota foi alterada para corresponder ao fetch() do frontend
