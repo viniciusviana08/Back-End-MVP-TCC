@@ -10,6 +10,7 @@ from config import *
 from db_functions import *
 from flask import current_app
 import json as _json
+from psycopg2 import IntegrityError
 import os
 
 app = Flask(__name__)
