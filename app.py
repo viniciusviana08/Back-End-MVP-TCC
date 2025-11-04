@@ -276,15 +276,31 @@ def completar_atividade():
     try:
         conexao, cursor = conectar_db()
 
-        # 0) Confirma que aluno existe (por segurança)
+        # 0) Confirma que aluno existe
         cursor.execute("SELECT idAluno FROM Aluno WHERE idAluno = %s", (aluno_id,))
         if not cursor.fetchone():
             return jsonify({"msg": "Aluno não encontrado."}), 404
 
-        # 0.5) Confirma que atividade existe
+        # 0.5) Confirma que atividade existe — se não, cria automaticamente
         cursor.execute("SELECT idAtividade FROM Atividade WHERE idAtividade = %s", (id_atividade,))
-        if not cursor.fetchone():
-            return jsonify({"msg": "Atividade não encontrada."}), 404
+        atividade = cursor.fetchone()
+        if not atividade:
+            # Cria automaticamente uma atividade padrão “TypeRun (AutoGerada)”
+            cursor.execute("""
+                INSERT INTO Atividade (titulo, tipo, descricao, conteudo_json, icon, status, turmas)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                RETURNING idAtividade
+            """, (
+                'Caça-Erros (TypeRun)',
+                'Jogo',
+                'Atividade autogerada pelo sistema durante o jogo TypeRun.',
+                '{}',
+                'keyboard',
+                'available',
+                '[]'
+            ))
+            nova = cursor.fetchone()
+            id_atividade = nova['idatividade'] if nova and 'idatividade' in nova else (nova[0] if nova else id_atividade)
 
         # Lógica de recompensa: 10 moedas base + 1 moeda por 10 pontos (mínimo 5)
         moedas_ganhas = max(5, 10 + (pontuacao // 10))
@@ -300,7 +316,7 @@ def completar_atividade():
                 "moedasGanhas": 0
             }), 200
 
-        # 2) Insere a atividade feita e retorna o id gerado
+        # 2) Insere o registro de atividade feita
         cursor.execute("""
             INSERT INTO AtividadeFeita (idAluno, idAtividade, pontuacao, feedback_gemini)
             VALUES (%s, %s, %s, %s)
@@ -309,7 +325,7 @@ def completar_atividade():
         result = cursor.fetchone()
         id_atividade_feita = result['idatividadefeita'] if result and 'idatividadefeita' in result else (result[0] if result else None)
 
-        # 3) Atualiza as moedas do aluno (retorna o novo saldo)
+        # 3) Atualiza as moedas do aluno
         cursor.execute("""
             UPDATE Aluno
             SET moedas = moedas + %s
@@ -344,6 +360,7 @@ def completar_atividade():
     finally:
         if cursor and conexao:
             encerrar_db(cursor, conexao)
+
 
 
 # --- ROTA DE CADASTRO DE Professor (ATUALIZADA) ---
